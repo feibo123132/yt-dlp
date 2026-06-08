@@ -8,6 +8,7 @@ node_modules/
 .npm/
 dist/
 pages-site/
+release/
 
 # OS/editor noise
 Thumbs.db

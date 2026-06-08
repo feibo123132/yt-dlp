@@ -3,7 +3,45 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "desktop": "electron .",
+    "test": "node tests/download-settings.test.js && node tests/ytdlp-args.test.js && node tests/server-module.test.js",
+    "dist:win": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^35.7.5",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "cn.local.linkAudioExtractor",
+    "productName": "Link Audio Extractor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "server.js",
+      "download-settings.js",
+      "ytdlp-args.js",
+      "package.json",
+      "public/**/*",
+      "electron/**/*",
+      "bin/**/*"
+    ],
+    "asarUnpack": [
+      "bin/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "LinkAudioExtractor-${version}-${arch}.${ext}"
+    }
   }
 }

@@ -18,11 +18,12 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Run tests
         shell: pwsh
-        run: |
-          node tests/download-settings.test.js
-          node tests/ytdlp-args.test.js
+        run: npm test
 
       - name: Check syntax
         shell: pwsh
@@ -30,4 +31,4 @@ jobs:
           node --check server.js
           node --check download-settings.js
           node --check ytdlp-args.js
-
+          node --check electron/main.js

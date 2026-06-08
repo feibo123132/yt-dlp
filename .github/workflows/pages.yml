@@ -1,4 +1,4 @@
-name: Publish Pages Download
+name: Publish Desktop Download
 
 on:
   push:
@@ -29,43 +29,42 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Verify project
         shell: pwsh
         run: |
-          node tests/download-settings.test.js
-          node tests/ytdlp-args.test.js
+          npm test
           node --check server.js
           node --check download-settings.js
           node --check ytdlp-args.js
+          node --check electron/main.js
 
-      - name: Package latest app
+      - name: Build Windows desktop app
+        run: npm run dist:win
+
+      - name: Prepare Pages site
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $appDir = "dist\link-audio-extractor"
           $siteDir = "pages-site"
           $downloadDir = Join-Path $siteDir "downloads"
-          New-Item -ItemType Directory -Force -Path $appDir, $downloadDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-          $items = @(
-            "server.js",
-            "package.json",
-            "download-settings.js",
-            "ytdlp-args.js",
-            "public",
-            "bin",
-            "README.md"
-          )
+          $exe = Get-ChildItem -LiteralPath "release" -Filter "LinkAudioExtractor-*.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
 
-          foreach ($item in $items) {
-            Copy-Item -LiteralPath $item -Destination $appDir -Recurse -Force
+          if (-not $exe) {
+            throw "Desktop executable was not produced."
           }
 
-          Get-ChildItem -File -Filter "*.bat" | Copy-Item -Destination $appDir -Force
+          $desktopZip = Join-Path $downloadDir "link-audio-extractor-windows.zip"
+          Compress-Archive -LiteralPath $exe.FullName -DestinationPath $desktopZip -Force
 
-          $zipPath = Join-Path $downloadDir "link-audio-extractor-latest.zip"
-          Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zipPath -Force
+          Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $downloadDir "LinkAudioExtractor.exe") -Force
 
           $sha = $env:GITHUB_SHA.Substring(0, 7)
           $builtAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
@@ -79,11 +78,12 @@ jobs:
               <style>
                 :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
                 body { margin: 0; background: #f3f6fb; color: #172033; }
-                main { max-width: 760px; margin: 56px auto; padding: 0 20px; }
+                main { max-width: 780px; margin: 56px auto; padding: 0 20px; }
                 section { background: white; border: 1px solid #dbe3ef; border-radius: 8px; padding: 28px; box-shadow: 0 10px 30px rgba(14,35,68,.08); }
                 h1 { margin: 0 0 12px; font-size: 28px; }
                 p { line-height: 1.75; }
-                a.button { display: inline-block; margin: 14px 0; padding: 12px 18px; border-radius: 6px; background: #0f62fe; color: white; text-decoration: none; font-weight: 700; }
+                a.button { display: inline-block; margin: 14px 10px 14px 0; padding: 12px 18px; border-radius: 6px; background: #0f62fe; color: white; text-decoration: none; font-weight: 700; }
+                a.secondary { background: #334155; }
                 code { background: #edf2f7; border-radius: 4px; padding: 2px 5px; }
                 .meta { color: #64748b; font-size: 14px; }
               </style>
@@ -92,9 +92,12 @@ jobs:
               <main>
                 <section>
                   <h1>Link Audio Extractor</h1>
-                  <p>Download the latest Windows local package. Unzip it, then double-click the included .bat launcher.</p>
-                  <p><a class="button" href="./downloads/link-audio-extractor-latest.zip">Download latest ZIP</a></p>
-                  <p>This version requires Node.js on the user's computer. MP3 export also requires ffmpeg. GitHub Pages only hosts this download page; extraction runs locally.</p>
+                  <p>Download the Windows desktop app, unzip it, then double-click the included executable. No terminal window or separate Node.js install is required for this desktop build.</p>
+                  <p>
+                    <a class="button" href="./downloads/link-audio-extractor-windows.zip">Download Windows ZIP</a>
+                    <a class="button secondary" href="./downloads/LinkAudioExtractor.exe">Download EXE directly</a>
+                  </p>
+                  <p>The app includes the local UI, Node runtime through Electron, and bundled yt-dlp. MP3 export still requires ffmpeg on the user's computer unless a future build bundles ffmpeg too.</p>
                   <p class="meta">Build: $sha - $builtAt</p>
                 </section>
               </main>

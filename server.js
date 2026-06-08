@@ -2,15 +2,19 @@ import { createServer } from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createDownloadSettings } from "./download-settings.js";
 import { buildYtDlpArgs } from "./ytdlp-args.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, "..");
 const publicDir = join(__dirname, "public");
-const downloadSettings = createDownloadSettings({ appDir: __dirname });
-const runtimeTmpDir = join(__dirname, ".runtime-tmp");
+const dataDir = resolve(process.env.LINK_AUDIO_EXTRACTOR_DATA_DIR || __dirname);
+const downloadSettings = createDownloadSettings({ appDir: dataDir });
+const runtimeTmpDir = join(dataDir, ".runtime-tmp");
+const localBinDir = __dirname.includes("app.asar")
+  ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "bin")
+  : join(__dirname, "bin");
 const requestedPort = Number(process.env.PORT);
 const portCandidates = Array.from(
   new Set(
@@ -26,6 +30,7 @@ if (!existsSync(runtimeTmpDir)) {
 
 const childEnv = {
   ...process.env,
+  PATH: `${localBinDir};${process.env.PATH || ""}`,
   TMP: runtimeTmpDir,
   TEMP: runtimeTmpDir
 };
@@ -256,7 +261,8 @@ function runExtractTask(payload) {
   });
 }
 
-const server = createServer(async (req, res) => {
+function createAudioExtractorServer() {
+  return createServer(async (req, res) => {
   if (!req.url) {
     sendText(res, 400, "Bad Request");
     return;
@@ -347,31 +353,57 @@ const server = createServer(async (req, res) => {
   }
 
   sendText(res, 404, "Not Found");
-});
+  });
+}
 
-function startListening(index = 0) {
+function listenOnAvailablePort(server, index = 0, { log = true } = {}) {
   if (index >= portCandidates.length) {
-    console.error("No available port for audio extractor.");
-    process.exit(1);
+    return Promise.reject(new Error("No available port for audio extractor."));
   }
 
   const nextPort = portCandidates[index];
 
-  server.once("error", (error) => {
-    if (error && error.code === "EADDRINUSE") {
-      console.warn(`Port ${nextPort} is in use, trying next port...`);
-      startListening(index + 1);
-      return;
+  return new Promise((resolveStart, rejectStart) => {
+    function onError(error) {
+      server.off("listening", onListening);
+
+      if (error && error.code === "EADDRINUSE") {
+        if (log) {
+          console.warn(`Port ${nextPort} is in use, trying next port...`);
+        }
+        listenOnAvailablePort(server, index + 1, { log }).then(resolveStart, rejectStart);
+        return;
+      }
+
+      rejectStart(error);
     }
 
-    console.error(error);
-    process.exit(1);
-  });
+    function onListening() {
+      server.off("error", onError);
+      if (log) {
+        console.log(`Audio extractor running at http://127.0.0.1:${nextPort}`);
+        console.log(`Downloads folder: ${downloadSettings.getDownloadsDir()}`);
+      }
+      resolveStart({ server, port: nextPort });
+    }
 
-  server.listen(nextPort, () => {
-    console.log(`Audio extractor running at http://127.0.0.1:${nextPort}`);
-    console.log(`Downloads folder: ${downloadSettings.getDownloadsDir()}`);
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(nextPort, "127.0.0.1");
   });
 }
 
-startListening();
+export function startServer(options = {}) {
+  return listenOnAvailablePort(createAudioExtractorServer(), 0, options);
+}
+
+function isDirectRun() {
+  return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+}
+
+if (isDirectRun()) {
+  startServer().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
