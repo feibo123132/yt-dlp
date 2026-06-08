@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          node tests/download-settings.test.js
+          node tests/ytdlp-args.test.js
+
+      - name: Check syntax
+        shell: pwsh
+        run: |
+          node --check server.js
+          node --check download-settings.js
+          node --check ytdlp-args.js
+

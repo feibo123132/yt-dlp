@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>链接音频提取</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f3f6fb;
+        color: #1f2937;
+      }
+      main {
+        max-width: 860px;
+        margin: 28px auto;
+        padding: 0 16px;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 8px;
+        padding: 18px;
+        box-shadow: 0 6px 20px rgba(14, 35, 68, 0.06);
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 20px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 100px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .row label {
+        font-size: 14px;
+        color: #334155;
+      }
+      input[type="text"],
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 9px 10px;
+        font-size: 14px;
+      }
+      .inline {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .path-control {
+        flex-wrap: nowrap;
+      }
+      .path-control input {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .inline label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      button {
+        border: 1px solid #0f62fe;
+        background: #0f62fe;
+        color: #fff;
+        padding: 9px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      button.secondary {
+        border-color: #94a3b8;
+        background: #fff;
+        color: #334155;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #0b1220;
+        color: #dbeafe;
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 170px;
+        max-height: 380px;
+        overflow: auto;
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+      .status,
+      .result {
+        margin: 6px 0 0;
+        font-size: 13px;
+      }
+      .status {
+        color: #475569;
+      }
+      .result.ok {
+        color: #166534;
+      }
+      .result.error {
+        color: #b91c1c;
+      }
+      @media (max-width: 720px) {
+        .row {
+          grid-template-columns: 1fr;
+          gap: 6px;
+        }
+        .path-control {
+          align-items: stretch;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <h1>链接音频提取工具</h1>
+
+        <div class="row">
+          <label for="url">视频链接</label>
+          <input id="url" type="text" placeholder="粘贴 B 站 / YouTube / 其他支持站点链接" />
+        </div>
+
+        <div class="row">
+          <label for="format">导出格式</label>
+          <select id="format">
+            <option value="source">原始音频（推荐，最快）</option>
+            <option value="mp3">MP3（需要 ffmpeg）</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label>登录资源</label>
+          <div class="inline">
+            <label><input id="useCookies" type="checkbox" /> 使用浏览器登录态</label>
+            <select id="cookieBrowser" disabled>
+              <option value="chrome">Chrome</option>
+              <option value="edge">Edge</option>
+              <option value="firefox">Firefox</option>
+              <option value="brave">Brave</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <label for="downloadsDir">保存位置</label>
+          <div class="inline path-control">
+            <input id="downloadsDir" type="text" readonly />
+            <button id="chooseDirBtn" class="secondary" type="button">选择文件夹</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <label>操作</label>
+          <div class="inline">
+            <button id="extractBtn">开始提取</button>
+            <button id="openBtn" class="secondary" type="button">打开下载目录</button>
+          </div>
+        </div>
+
+        <p id="status" class="status">环境检查中...</p>
+        <p id="result" class="result"></p>
+        <p id="path" class="status"></p>
+        <pre id="logs"></pre>
+      </section>
+    </main>
+
+    <script>
+      const urlInput = document.getElementById("url");
+      const formatSelect = document.getElementById("format");
+      const useCookies = document.getElementById("useCookies");
+      const cookieBrowser = document.getElementById("cookieBrowser");
+      const extractBtn = document.getElementById("extractBtn");
+      const openBtn = document.getElementById("openBtn");
+      const chooseDirBtn = document.getElementById("chooseDirBtn");
+      const downloadsDirInput = document.getElementById("downloadsDir");
+      const statusEl = document.getElementById("status");
+      const resultEl = document.getElementById("result");
+      const pathEl = document.getElementById("path");
+      const logsEl = document.getElementById("logs");
+
+      useCookies.addEventListener("change", () => {
+        cookieBrowser.disabled = !useCookies.checked;
+      });
+
+      function setBusy(isBusy) {
+        extractBtn.disabled = isBusy;
+        openBtn.disabled = isBusy;
+        chooseDirBtn.disabled = isBusy;
+        extractBtn.textContent = isBusy ? "提取中..." : "开始提取";
+      }
+
+      function updateDownloadsDir(downloadsDir) {
+        downloadsDirInput.value = downloadsDir || "";
+      }
+
+      async function readJsonResponse(res) {
+        const text = await res.text();
+        if (!text) {
+          return {};
+        }
+
+        try {
+          return JSON.parse(text);
+        } catch {
+          const message =
+            res.status === 404
+              ? "服务还没加载新功能，请关闭 .bat 窗口后重新双击启动"
+              : text;
+          return { ok: false, message };
+        }
+      }
+
+      async function loadStatus() {
+        try {
+          const res = await fetch("/api/status");
+          const data = await readJsonResponse(res);
+          if (!res.ok || data.ok === false) {
+            throw new Error(data.message || "环境检查失败");
+          }
+          updateDownloadsDir(data.downloadsDir);
+          statusEl.textContent =
+            "yt-dlp: " +
+            data.ytDlp +
+            " | ffmpeg: " +
+            data.ffmpeg;
+        } catch (error) {
+          statusEl.textContent = "环境检查失败: " + error.message;
+        }
+      }
+
+      async function runExtract() {
+        const url = urlInput.value.trim();
+        if (!url) {
+          resultEl.className = "result error";
+          resultEl.textContent = "请先粘贴视频链接";
+          return;
+        }
+
+        setBusy(true);
+        resultEl.textContent = "";
+        resultEl.className = "result";
+        pathEl.textContent = "";
+        logsEl.textContent = "正在调用 yt-dlp，请稍候...";
+
+        try {
+          const payload = {
+            url,
+            format: formatSelect.value,
+            useCookies: useCookies.checked,
+            cookieBrowser: cookieBrowser.value
+          };
+
+          const res = await fetch("/api/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const data = await readJsonResponse(res);
+
+          logsEl.textContent = data.logs || "";
+
+          if (!res.ok || !data.ok) {
+            resultEl.className = "result error";
+            resultEl.textContent = data.message || "提取失败";
+            pathEl.textContent = data.downloadsDir ? "下载目录: " + data.downloadsDir : "";
+            updateDownloadsDir(data.downloadsDir);
+            return;
+          }
+
+          resultEl.className = "result ok";
+          resultEl.textContent = "提取完成";
+          updateDownloadsDir(data.downloadsDir);
+          if (data.filePath) {
+            pathEl.textContent = "输出文件: " + data.filePath;
+          } else {
+            pathEl.textContent = "下载目录: " + data.downloadsDir;
+          }
+        } catch (error) {
+          resultEl.className = "result error";
+          resultEl.textContent = "请求失败: " + error.message;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function chooseDownloadsDir() {
+        setBusy(true);
+        resultEl.textContent = "请选择保存文件夹...";
+        resultEl.className = "result";
+
+        try {
+          const res = await fetch("/api/select-downloads-dir", { method: "POST" });
+          const data = await readJsonResponse(res);
+          if (!res.ok || !data.ok) {
+            throw new Error(data.message || "选择文件夹失败");
+          }
+
+          updateDownloadsDir(data.downloadsDir);
+          resultEl.className = "result ok";
+          resultEl.textContent = "保存位置已更新";
+          pathEl.textContent = "下载目录: " + data.downloadsDir;
+        } catch (error) {
+          resultEl.className = "result error";
+          resultEl.textContent = error.message;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function openDownloads() {
+        try {
+          const res = await fetch("/api/open-downloads", { method: "POST" });
+          const data = await readJsonResponse(res);
+          if (!res.ok || !data.ok) {
+            throw new Error(data.message || "打开目录失败");
+          }
+        } catch (error) {
+          resultEl.className = "result error";
+          resultEl.textContent = error.message;
+        }
+      }
+
+      extractBtn.addEventListener("click", runExtract);
+      openBtn.addEventListener("click", openDownloads);
+      chooseDirBtn.addEventListener("click", chooseDownloadsDir);
+      loadStatus();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,126 @@
+name: Publish Pages Download
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify project
+        shell: pwsh
+        run: |
+          node tests/download-settings.test.js
+          node tests/ytdlp-args.test.js
+          node --check server.js
+          node --check download-settings.js
+          node --check ytdlp-args.js
+
+      - name: Package latest app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $appDir = "dist\link-audio-extractor"
+          $siteDir = "pages-site"
+          $downloadDir = Join-Path $siteDir "downloads"
+          New-Item -ItemType Directory -Force -Path $appDir, $downloadDir | Out-Null
+
+          $items = @(
+            "server.js",
+            "package.json",
+            "download-settings.js",
+            "ytdlp-args.js",
+            "public",
+            "bin",
+            "README.md"
+          )
+
+          foreach ($item in $items) {
+            Copy-Item -LiteralPath $item -Destination $appDir -Recurse -Force
+          }
+
+          Get-ChildItem -File -Filter "*.bat" | Copy-Item -Destination $appDir -Force
+
+          $zipPath = Join-Path $downloadDir "link-audio-extractor-latest.zip"
+          Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zipPath -Force
+
+          $sha = $env:GITHUB_SHA.Substring(0, 7)
+          $builtAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
+          $index = @"
+          <!doctype html>
+          <html lang="zh-CN">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Link Audio Extractor</title>
+              <style>
+                :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+                body { margin: 0; background: #f3f6fb; color: #172033; }
+                main { max-width: 760px; margin: 56px auto; padding: 0 20px; }
+                section { background: white; border: 1px solid #dbe3ef; border-radius: 8px; padding: 28px; box-shadow: 0 10px 30px rgba(14,35,68,.08); }
+                h1 { margin: 0 0 12px; font-size: 28px; }
+                p { line-height: 1.75; }
+                a.button { display: inline-block; margin: 14px 0; padding: 12px 18px; border-radius: 6px; background: #0f62fe; color: white; text-decoration: none; font-weight: 700; }
+                code { background: #edf2f7; border-radius: 4px; padding: 2px 5px; }
+                .meta { color: #64748b; font-size: 14px; }
+              </style>
+            </head>
+            <body>
+              <main>
+                <section>
+                  <h1>Link Audio Extractor</h1>
+                  <p>Download the latest Windows local package. Unzip it, then double-click the included .bat launcher.</p>
+                  <p><a class="button" href="./downloads/link-audio-extractor-latest.zip">Download latest ZIP</a></p>
+                  <p>This version requires Node.js on the user's computer. MP3 export also requires ffmpeg. GitHub Pages only hosts this download page; extraction runs locally.</p>
+                  <p class="meta">Build: $sha - $builtAt</p>
+                </section>
+              </main>
+            </body>
+          </html>
+          "@
+
+          Set-Content -LiteralPath (Join-Path $siteDir "index.html") -Value $index -Encoding UTF8
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

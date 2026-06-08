@@ -1,0 +1,15 @@
+# Local runtime state
+.runtime-tmp/
+downloads/
+settings.json
+
+# Dependency/cache folders
+node_modules/
+.npm/
+dist/
+pages-site/
+
+# OS/editor noise
+Thumbs.db
+.DS_Store
+*.log
